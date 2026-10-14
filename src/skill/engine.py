@@ -142,9 +142,7 @@ class SkillEngine:
 
         logger.info("[SKILL] exec script: %s %s", script_path, args)
 
-        creationflags = 0
-        if sys.platform == "win32":
-            creationflags = subprocess.CREATE_NO_WINDOW
+        from src.platform_support import hidden_window_kwargs
 
         # 构建命令行参数
         cmd_args = []
@@ -174,8 +172,8 @@ class SkillEngine:
             capture_output=True, text=True,
             encoding="utf-8", errors="replace",
             timeout=timeout,
-            creationflags=creationflags,
             env={**_os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"},
+            **hidden_window_kwargs(),
         )
         stdout = (result.stdout or "").strip()
         stderr = (result.stderr or "").strip()

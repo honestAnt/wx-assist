@@ -17,10 +17,18 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-import win32gui
-import win32con
-import win32clipboard
-import win32process
+try:
+    import win32gui
+    import win32con
+    import win32clipboard
+    import win32process
+    WIN32_UI_AVAILABLE = True
+except ImportError:
+    win32gui = None
+    win32con = None
+    win32clipboard = None
+    win32process = None
+    WIN32_UI_AVAILABLE = False
 from PIL import ImageGrab, ImageStat
 
 logger = logging.getLogger(__name__)
@@ -190,6 +198,10 @@ class WeChatWindowController:
         Returns:
             Validated HWND or None.
         """
+        if not WIN32_UI_AVAILABLE:
+            logger.info("Win32 window control is unavailable on this platform")
+            return None
+
         # Check cache
         if not force and self._cached_hwnd:
             if self._validate_hwnd(self._cached_hwnd):

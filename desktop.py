@@ -1,12 +1,13 @@
 """
-Desktop application entry point.
+Desktop application entry point for Windows, macOS, and Linux.
 
-Uses Edge WebView2 (built into Windows 10/11) for a native window.
-Falls back to browser if WebView2 is unavailable.
+The native window uses pywebview (WebView2 on Windows, Cocoa on macOS,
+GTK/Qt on Linux) and falls back to the system browser when that runtime
+is missing.
 
 Usage:
     python desktop.py
-    wx-assist.exe  (packaged version)
+    wx-assist.exe / wx-assist.app / wx-assist  (packaged builds)
 """
 import atexit
 import logging
@@ -19,10 +20,10 @@ import webbrowser
 import traceback
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parent
-
+SOURCE_ROOT = Path(__file__).resolve().parent
 if getattr(sys, "frozen", False):
-    PROJECT_ROOT = Path(sys.executable).resolve().parent
+    SOURCE_ROOT = Path(sys.executable).resolve().parent
+PROJECT_ROOT = SOURCE_ROOT
 
 # ── Process identity for hard-kill protection ────────────────────
 # Record our PID so atexit can kill us if graceful shutdown stalls.
@@ -115,21 +116,11 @@ def _graceful_shutdown():
     #    naturally when the process exits.
 
     # 3. Hard-kill safeguard — if the process is still alive in 5s,
-    #    something is stuck (daemon thread, hanging DLL call, etc.).
+    #    something is stuck (daemon thread, hanging call, etc.).
     #    Schedule a hard kill so the user never has orphan processes.
-    import subprocess
     try:
-        subprocess.Popen(
-            [
-                sys.executable if not getattr(sys, "frozen", False) else "cmd",
-                "-c" if not getattr(sys, "frozen", False) else "/c",
-                f"timeout /t 5 /nobreak >nul & taskkill /pid {_OUR_PID} /f"
-                if not getattr(sys, "frozen", False)
-                else f"timeout /t 5 /nobreak >nul & taskkill /pid {_OUR_PID} /f",
-            ],
-            creationflags=0x08000000,  # CREATE_NO_WINDOW
-            close_fds=True,
-        )
+        from src.platform_support import schedule_hard_kill
+        schedule_hard_kill(_OUR_PID, 5)
     except Exception:
         pass  # Best effort — if this fails, the process will still exit
               # when all non-daemon threads finish.
@@ -292,21 +283,15 @@ def _native_close_dialog(window):
     用户至少还能通过它做出选择，而不是只能去任务管理器杀进程。
     """
     try:
-        import ctypes
-        result = ctypes.windll.user32.MessageBoxW(
-            0,
-            "关闭窗口后程序仍在后台运行，关键词提醒和定时任务会继续执行。\n\n"
-            "「是」最小化到托盘    「否」退出程序    「取消」什么都不做",
-            "摘星 · 微信助手",
-            0x3 | 0x20 | 0x40000,  # YESNOCANCEL | ICONQUESTION | TOPMOST
-        )
+        from src.platform_support import ask_close_choice
+        result = ask_close_choice()
     except Exception as exc:
         logger.warning("系统兜底弹窗失败: %s", exc)
         return
 
-    if result == 6:      # 是 → 最小化到托盘
+    if result == "tray":
         _hide_to_tray(window)
-    elif result == 7:    # 否 → 退出程序
+    elif result == "quit":
         _quit_application()
 
 
@@ -419,12 +404,20 @@ def _signal_handler(signum, frame):
     sys.exit(0)
 
 
+def _prepare_home() -> None:
+    """Point cwd and PROJECT_ROOT at the writable app directory."""
+    global PROJECT_ROOT
+    from src.platform_support import runtime_home
+    PROJECT_ROOT = runtime_home(SOURCE_ROOT)
+    os.chdir(str(PROJECT_ROOT))
+
+
 def main():
     # ── Set CWD to app home directory ──────────────────────────────
-    if getattr(sys, "frozen", False):
-        os.chdir(str(Path(sys.executable).resolve().parent))
-    else:
-        os.chdir(str(PROJECT_ROOT))
+    # Source mode: repository root on every OS.
+    # Frozen Windows: directory of the executable (unchanged).
+    # Frozen macOS/Linux: per-user data directory.
+    _prepare_home()
 
     # ── Skill script execution mode (EXE builds only) ──────────────
     # EXE 模式 skill 脚本在子进程跑: [wx-assist.exe, --run-script, weather.py, args...]
@@ -446,30 +439,22 @@ def main():
         exec(_code, {"__name__": "__main__", "__file__": str(script_path)})
         sys.exit(0)
 
-    # ── Single-instance mutex (EXE only, source mode allows multi) ─
-    # Creates a Windows named mutex so double-clicking the EXE twice
-    # doesn't start two instances that fight over the same port, DB,
-    # and iLink session.  The mutex lives as long as this handle is
-    # open; when the process exits, Windows auto-releases it.
+    # ── Single-instance lock (packaged builds only) ───────────────
+    # Windows: named mutex Global\wx-assist-17327.
+    # macOS/Linux: exclusive flock in the temp directory.
+    # Source mode stays unlocked so tests and a second checkout can run.
     if getattr(sys, "frozen", False):
-        import ctypes as _ctypes
-        _MUTEX_NAME = "Global\\wx-assist-17327"
-        _mutex_h = _ctypes.windll.kernel32.CreateMutexW(None, False, _MUTEX_NAME)
-        if not _mutex_h:
-            pass  # CreateMutex failed — proceed anyway
-        elif _ctypes.windll.kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
-            _ctypes.windll.kernel32.CloseHandle(_mutex_h)
+        from src.platform_support import acquire_single_instance, show_message
+        if not acquire_single_instance():
             # 已有实例在跑：先试着把它的窗口唤起来（它可能被最小化到托盘了，
             # 用户正是因为找不到窗口才又点了一次图标）。
             # 唤不起来才提示"已在运行"，避免出现"打不开新的、旧窗口也找不到"。
             if _notify_existing_instance():
                 sys.exit(0)
-            _ctypes.windll.user32.MessageBoxW(
-                0,
+            show_message(
+                "微信助手 — 提示",
                 "wx-assist 已在运行，无需重复启动。\n\n"
                 "如果无法正常使用，请先关闭已有程序再试。",
-                "微信助手 — 提示",
-                0x40,  # MB_ICONINFORMATION
             )
             sys.exit(0)
 
@@ -512,13 +497,12 @@ def main():
     if not ready:
         _write_crash_log("Web server startup timeout (30 attempts)")
         try:
-            import ctypes
-            ctypes.windll.user32.MessageBoxW(
-                0,
+            from src.platform_support import show_message
+            show_message(
+                "微信助手 — 启动失败",
                 "Web 服务器启动超时，请检查端口 17327 是否被占用。\n\n"
                 "详情见 data/crash.log",
-                "微信助手 — 启动失败",
-                0x10,
+                error=True,
             )
         except Exception:
             pass
@@ -526,15 +510,10 @@ def main():
 
     # ── Auto-start bot when prerequisites are met ──────────────────
     if not onboarding_needed:
-        # Check 1: WeChat process must be running (WCDB key depends on it)
-        import subprocess as _sp
         wechat_ok = False
         try:
-            r = _sp.run(
-                ["tasklist", "/FI", "IMAGENAME eq WeChat.exe", "/NH"],
-                capture_output=True, text=True, timeout=5,
-            )
-            wechat_ok = "WeChat.exe" in r.stdout
+            from src.platform_support import wechat_process_report
+            wechat_ok = bool(wechat_process_report().get("ok"))
         except Exception:
             pass
 
@@ -570,7 +549,12 @@ def main():
         )
         window.events.closing += _on_window_closing
 
-        webview.start(gui="edgechromium")
+        from src.platform_support import preferred_webview_gui
+        gui = preferred_webview_gui()
+        if gui:
+            webview.start(gui=gui)
+        else:
+            webview.start()
     except Exception as e:
         logger_available = False
         try:

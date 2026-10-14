@@ -62,6 +62,7 @@ class _PersistentWasmService:
 
             # Start fresh process
             logger.info("Starting persistent WASM decrypt service...")
+            from src.platform_support import hidden_window_kwargs
             self.process = subprocess.Popen(
                 ["node", WASM_DECRYPT_SCRIPT],
                 stdin=subprocess.PIPE,
@@ -70,7 +71,7 @@ class _PersistentWasmService:
                 cwd=os.path.dirname(WASM_DECRYPT_SCRIPT),
                 text=True,
                 bufsize=1,  # Line-buffered
-                creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0,
+                **hidden_window_kwargs(),
             )
             # Wait for WASM to initialize (2s)
             time.sleep(2.2)

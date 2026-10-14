@@ -1,5 +1,7 @@
 # 上手指南
 
+Windows、macOS、Linux 都使用同一个入口 `python desktop.py`。各系统能做和不能做的事、以及打包命令，见仓库根目录 README 的「技术说明」和 [build.md](build.md)。
+
 ## 1. 首次启动
 
 1. 启动桌面应用或本地 Web 服务；

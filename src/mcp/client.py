@@ -103,9 +103,7 @@ class StdioClient(MCPClient):
         for sensitive in ("WCDB_KEY", "DATABASE_URL", "DATA_DIR", "PYTHONPATH"):
             env.pop(sensitive, None)
 
-        creationflags = 0
-        if sys.platform == "win32":
-            creationflags = subprocess.CREATE_NO_WINDOW  # 禁弹黑窗
+        from src.platform_support import hidden_window_kwargs
 
         cwd = self.config.get("cwd", None)
 
@@ -117,8 +115,8 @@ class StdioClient(MCPClient):
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
                 env=env,
-                creationflags=creationflags,
                 cwd=cwd,
+                **hidden_window_kwargs(),
             )
         except FileNotFoundError:
             if sys.platform == "win32" and not cmd.lower().endswith(('.exe', '.cmd', '.bat')):
@@ -129,8 +127,8 @@ class StdioClient(MCPClient):
                     stdout=subprocess.PIPE,
                     stderr=subprocess.DEVNULL,
                     env=env,
-                    creationflags=creationflags,
                     cwd=cwd,
+                    **hidden_window_kwargs(),
                 )
             else:
                 raise

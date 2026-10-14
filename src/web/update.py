@@ -105,6 +105,10 @@ def build_variant() -> str:
 
 def _can_auto_install() -> tuple:
     """能否就地替换当前 exe。返回 (是否可以, 不能的原因)。"""
+    from src.platform_support import supports_in_place_update
+
+    if not supports_in_place_update():
+        return False, "自动替换安装包目前仅支持 Windows。请从 Release 下载对应系统的文件后手动替换。"
     if not getattr(sys, "frozen", False):
         return False, "源码模式不支持自动更新，请用 git pull 拉取新版本"
     exe_dir = Path(sys.executable).resolve().parent
