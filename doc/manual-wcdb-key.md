@@ -63,6 +63,64 @@ Windows 打包若要自带自动提取，需在仓库 `lib/` 下放好 `wx_key.d
 
 **Linux：** 本机通常没有官方微信客户端的密钥钩子。把 Windows 上同一账号的数据目录拷过来，设置 `WECHAT_DATA_DIR` 并填写对应的 `WCDB_KEY` 即可走纯 Python 读取路径（见根目录 README「技术说明」）。
 
+## macOS 推荐配置（可直接照填）
+
+在 Finder 按 `Cmd+Shift+G` 粘贴路径即可打开。
+
+### 常见数据目录（按优先级）
+
+| 优先级 | 路径 |
+|--------|------|
+| 1（多数新版微信） | `~/Library/Containers/com.tencent.xinWeChat/Data/Documents/xwechat_files` |
+| 2 | `~/Documents/xwechat_files` |
+| 3 | `~/Documents/WeChat Files` |
+| 4 | `~/Library/Containers/com.tencent.xinWeChat/Data/Documents/WeChat Files` |
+
+`WECHAT_DATA_DIR` 填**含账号文件夹的父目录**（能看到 `wxid_*` 的那一层），不要填到某个 `wxid_*` 里面。
+
+打开数据目录后，账号文件夹名即 `WXID`（完整名称，含末尾哈希后缀，如 `wxid_xxxx_2b41`）。  
+`DB_PATH` 一般为：
+
+`…/<WXID>/db_storage/session/session.db`
+
+注意：自动扫描只认以 `wxid_` 开头的文件夹；若账号目录是 `qq数字_xxxx` 这类，请在手动配置里显式填写 `WXID` 与 `DB_PATH`。
+
+### 引导页 / 环境变量对照
+
+| 界面字段 | 环境变量 | 示例 |
+|----------|----------|------|
+| 连接凭证 | `WCDB_KEY` | 64 位十六进制（从 Windows 自动提取后粘贴） |
+| 微信数据目录 | `WECHAT_DATA_DIR` | `~/Library/Containers/com.tencent.xinWeChat/Data/Documents/xwechat_files` |
+| 账号 ID | `WXID` | `wxid_xxxxxxxx_xxxx`（完整文件夹名） |
+| 数据库路径 | `DB_PATH` | `$WECHAT_DATA_DIR/$WXID/db_storage/session/session.db` |
+| 后端 | `WECHAT_BACKEND` | `mac_hybrid`（也可留空，macOS 默认即此） |
+
+### `.env` / `.env.macos` 模板
+
+打包后的 `.app` 可写配置目录：
+
+`~/Library/Application Support/wx-assist/`
+
+（源码运行则在仓库根目录；`desktop_mac.py` 会准备 `.env.macos`。）
+
+```bash
+# === WeChat（macOS 手动配置）===
+WECHAT_BACKEND=mac_hybrid
+WECHAT_DATA_DIR=/Users/你的用户名/Library/Containers/com.tencent.xinWeChat/Data/Documents/xwechat_files
+WXID=wxid_xxxxxxxx_xxxx
+DB_PATH=/Users/你的用户名/Library/Containers/com.tencent.xinWeChat/Data/Documents/xwechat_files/wxid_xxxxxxxx_xxxx/db_storage/session/session.db
+WCDB_KEY=请粘贴64位十六进制密钥
+
+WECHAT_GROUPS=*
+```
+
+也可用 `WEBOT_APP_HOME` 覆盖应用数据目录。应用日志一般在：
+
+`~/Library/Application Support/wx-assist/data/bot.log`
+
+macOS **不能**自动提取密钥；流程见上文「在 Windows 上自动获取」。
+
+
 ## 4. 校验要点
 
 - 密钥长度必须是 **恰好 64** 位十六进制；多空格、少一位都会失败。
