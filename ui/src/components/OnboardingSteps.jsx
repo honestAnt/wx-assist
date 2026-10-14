@@ -1,4 +1,4 @@
-﻿import { useState, useEffect } from 'react'
+﻿import { useState, useEffect, useRef } from 'react'
 import { motion } from 'framer-motion'
 import { CheckCircle, ArrowRight, Spinner, XCircle, Warning, MagnifyingGlass, CircleNotch, Lightning, ChatCircle, CaretDown, CaretRight, Folder } from '@phosphor-icons/react'
 import { Field, Select, Input, Toggle, spring, API_BASE } from './SharedComponents'
@@ -8,10 +8,11 @@ const API = API_BASE
 // ── Step 1: Key Extraction & Diagnostics ──────────────────────────────
 
 export function Step1Prepare({ data, updateData, onDone }) {
-  const [phase, setPhase] = useState('idle') // idle | extracting | done | timeout | error
+  const [phase, setPhase] = useState('idle') // idle | extracting | done | timeout | error | unsupported
   const [msg, setMsg] = useState('')
   const [busy, setBusy] = useState(false)
   const [isManual, setIsManual] = useState(false)
+  const extractPollRef = useRef(null)
   const [manualKey, setManualKey] = useState(data.key || '')
   const [manualWxid, setManualWxid] = useState(data.wxid || '')
   const [manualDbPath, setManualDbPath] = useState(data.db_path || '')
@@ -158,13 +159,45 @@ export function Step1Prepare({ data, updateData, onDone }) {
     fetchDiagnostics()
   }, [])
 
+  useEffect(() => {
+    return () => {
+      if (extractPollRef.current) {
+        clearInterval(extractPollRef.current)
+        extractPollRef.current = null
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    // Off Windows, auto key extraction cannot work — surface manual config early.
+    if (diagnostics && diagnostics.platform && diagnostics.platform.key_hook === false) {
+      setIsManual(true)
+    }
+  }, [diagnostics])
+
   const isManualValid =
     manualKey.trim().length === 64 &&
     /^[0-9a-fA-F]+$/.test(manualKey.trim()) &&
     manualWxid.trim().length > 0 &&
     manualDbPath.trim().length > 0;
 
+  function stopExtractPoll() {
+    if (extractPollRef.current) {
+      clearInterval(extractPollRef.current)
+      extractPollRef.current = null
+    }
+  }
+
+  function finishUnsupported(message) {
+    stopExtractPoll()
+    setPhase('unsupported')
+    setMsg(message || '当前系统不支持从微信进程自动提取密钥，请手动配置 WCDB_KEY 与数据目录。')
+    setBusy(false)
+    setIsManual(true)
+  }
+
   async function handleExtract() {
+    stopExtractPoll()
     setBusy(true)
     setPhase('extracting')
     setMsg('')
@@ -172,6 +205,10 @@ export function Step1Prepare({ data, updateData, onDone }) {
       const startRes = await fetch(`${API}/api/onboarding/step1`, { method: 'POST' })
       const start = await startRes.json()
       if (!start.ok) {
+        if (start.phase === 'unsupported') {
+          finishUnsupported(start.message)
+          return
+        }
         setPhase('error')
         setMsg(start.message || '启动失败')
         setBusy(false)
@@ -187,7 +224,7 @@ export function Step1Prepare({ data, updateData, onDone }) {
               || s.phase === 'hooking' || s.phase === 'hooking_restart') {
             setMsg(s.message || '')
           } else if ((s.phase === 'done' || s.phase === 'done_need_step2') && s.result) {
-            clearInterval(poll)
+            stopExtractPoll()
             updateData({
               key: s.result.key,
               wxid: s.result.wxid || '',
@@ -205,14 +242,17 @@ export function Step1Prepare({ data, updateData, onDone }) {
               setBusy(false)
               saveWechatConfig('', '', s.result.key, s.result.wechat_data_dir || '').then(() => onDone(false))
             }
+          } else if (s.phase === 'unsupported') {
+            finishUnsupported(s.message)
           } else if (s.phase === 'timeout' || s.phase === 'error') {
-            clearInterval(poll)
+            stopExtractPoll()
             setPhase(s.phase === 'timeout' ? 'timeout' : 'error')
             setMsg(s.message || '提取失败')
             setBusy(false)
           }
         } catch {}
       }, 1000)
+      extractPollRef.current = poll
     } catch {
       setPhase('error')
       setMsg('无法连接服务器')
@@ -287,6 +327,18 @@ export function Step1Prepare({ data, updateData, onDone }) {
         ok: diagnostics.wechat.ok,
         critical: false,
         help: !diagnostics.wechat.ok ? '自动连接需要微信处于登录状态。若微信已登录但检测为未运行，请检查微信版本。' : null,
+      },
+      {
+        key: 'key_hook',
+        title: '自动提取密钥',
+        desc: diagnostics.platform?.key_hook
+          ? '当前系统支持从微信进程自动提取'
+          : (diagnostics.platform?.note || '当前系统不支持自动提取，请手动填写 WCDB_KEY'),
+        ok: !!diagnostics.platform?.key_hook,
+        critical: false,
+        help: !diagnostics.platform?.key_hook
+          ? 'macOS / Linux 无法使用 Windows 密钥钩子。请点右上角「手动配置」，填写 64 位 WCDB_KEY 与微信数据目录（或从 Windows 端拿到密钥后再配置）。'
+          : null,
       },
       {
         key: 'env',
@@ -514,24 +566,52 @@ export function Step1Prepare({ data, updateData, onDone }) {
 
                 {renderChecklist()}
 
+                {diagnostics && diagnostics.platform?.key_hook === false && (
+                  <div className="bg-status-warn-soft border border-status-warn/20 rounded-2xl p-4 flex items-start gap-3">
+                    <Warning size={20} weight="fill" className="text-status-warn shrink-0 mt-0.5" />
+                    <div className="text-sm text-status-warn space-y-1">
+                      <p className="font-semibold">当前系统不支持自动提取密钥</p>
+                      <p className="text-xs text-text-muted font-normal leading-relaxed">
+                        {diagnostics.platform?.note || '请改用右上角「手动配置」，填写 WCDB_KEY 与微信数据目录。'}
+                        密钥可从 Windows 端自动提取后复制过来。
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setIsManual(true)}
+                        className="mt-2 px-4 py-2 bg-brand-green-hover text-white hover:opacity-90 text-xs font-semibold rounded-full cursor-pointer transition-colors"
+                      >
+                        前往手动配置
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 <div className="pt-4 border-t border-border-main/40 flex items-center gap-4">
                   <motion.button
                     whileTap={{ scale: 0.97 }} whileHover={{ scale: 1.02 }}
                     onClick={handleExtract}
-                    disabled={diagnosticsLoading || (diagnostics && !diagnostics.wechat.ok)}
+                    disabled={
+                      diagnosticsLoading
+                      || (diagnostics && !diagnostics.wechat.ok)
+                      || (diagnostics && diagnostics.platform?.key_hook === false)
+                    }
                     className={`w-48 py-2.5 rounded-full text-[14px] font-semibold tracking-wide transition-all duration-300 flex items-center justify-center gap-2 cursor-pointer ${
-                      diagnostics && diagnostics.wechat.ok
+                      diagnostics && diagnostics.wechat.ok && diagnostics.platform?.key_hook !== false
                         ? 'bg-brand-green-hover text-white hover:opacity-90 animate-pulse'
                         : 'bg-bg-raised text-text-muted border border-border-main cursor-not-allowed'
                     }`}
                   >
                     开始自动获取
                   </motion.button>
-                  {diagnostics && !diagnostics.wechat.ok && (
+                  {diagnostics && diagnostics.platform?.key_hook === false ? (
+                    <span className="text-xs text-status-warn bg-status-warn-soft border border-status-warn/20 px-4 py-2 rounded-full font-medium">
+                      请使用手动配置填写密钥
+                    </span>
+                  ) : diagnostics && !diagnostics.wechat.ok ? (
                     <span className="text-xs text-status-warn bg-status-warn-soft border border-status-warn/20 px-4 py-2 rounded-full font-medium">
                       请登录微信电脑端，否则无法自动获取
                     </span>
-                  )}
+                  ) : null}
                 </div>
               </div>
             )}
@@ -560,7 +640,7 @@ export function Step1Prepare({ data, updateData, onDone }) {
                   {msg && <div className="text-text-muted">&gt; {msg}</div>}
                 </div>
                 <button
-                  onClick={() => setPhase('idle')}
+                  onClick={() => { stopExtractPoll(); setPhase('idle'); setBusy(false) }}
                   className="px-4 py-2 bg-bg-raised hover:bg-bg-card text-xs text-text-muted hover:text-text-main rounded-full border border-border-main cursor-pointer transition-colors"
                 >
                   取消并返回
@@ -586,6 +666,34 @@ export function Step1Prepare({ data, updateData, onDone }) {
                   </button>
                   <button
                     onClick={() => setPhase('idle')}
+                    className="px-4 py-2 bg-bg-raised hover:bg-bg-card text-sm text-text-muted rounded-full border border-border-main cursor-pointer transition-colors"
+                  >
+                    返回诊断
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {phase === 'unsupported' && (
+              <div className="space-y-6">
+                <div className="bg-status-warn-soft border border-status-warn/20 rounded-2xl p-6 flex items-start gap-4 text-status-warn">
+                  <Warning size={24} weight="fill" className="text-status-warn shrink-0" />
+                  <div className="space-y-1">
+                    <p className="text-sm font-semibold text-status-warn">当前系统不支持自动连接</p>
+                    <p className="text-xs text-text-muted font-normal leading-relaxed">
+                      {msg || 'macOS / Linux 无法从微信进程提取密钥。请手动填写 WCDB_KEY，并选择微信数据目录。'}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => { setIsManual(true); setPhase('idle') }}
+                    className="px-4 py-2 bg-brand-green-hover text-white hover:opacity-90 text-sm font-semibold rounded-full cursor-pointer transition-colors"
+                  >
+                    前往手动配置
+                  </button>
+                  <button
+                    onClick={() => { stopExtractPoll(); setPhase('idle'); setBusy(false) }}
                     className="px-4 py-2 bg-bg-raised hover:bg-bg-card text-sm text-text-muted rounded-full border border-border-main cursor-pointer transition-colors"
                   >
                     返回诊断
