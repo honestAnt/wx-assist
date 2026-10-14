@@ -16,7 +16,7 @@ Windows、macOS、Linux 都使用同一个入口 `python desktop.py`。各系统
 
 自动提取密钥**仅支持 Windows**。在 macOS 或 Linux 上请改用「手动配置」：
 
-1. 在一台 Windows 电脑上运行摘星，完成引导页的 **自动连接**，拿到 64 位 `WCDB_KEY`；
+1. 在一台 Windows 电脑（或本机 Windows 虚拟机，见 [manual-wcdb-key.md](manual-wcdb-key.md) §2.1）上运行摘星，完成引导页的 **自动连接**，拿到 64 位 `WCDB_KEY`；
 2. 在 Windows 的 **系统配置 → 连接凭证** 中显示并复制密钥（或从 `.env` 的 `WCDB_KEY=` 复制）；
 3. 回到 macOS / Linux，在引导页点 **手动配置**，粘贴密钥，并填写同一账号的 `wxid`、数据目录或 `session.db` 路径。
 

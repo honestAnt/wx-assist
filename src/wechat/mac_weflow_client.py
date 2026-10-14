@@ -554,19 +554,51 @@ class _WCDBSQLiteReader:
         if self._keys is not None:
             return self._keys
         keys_file = self.data_dir / "all_keys.json"
+        out: dict[str, str] = {}
+        keys_file_error = None
         try:
             raw = json.loads(keys_file.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
-            raise RuntimeError(f"Could not read WeChat all_keys.json: {exc}") from exc
-        out: dict[str, str] = {}
+            keys_file_error = exc
+            raw = None
         if isinstance(raw, dict):
             for rel, value in raw.items():
                 key = value.get("enc_key", "") if isinstance(value, dict) else value
                 key = str(key or "").strip().lower()
                 if len(key) == HEX_KEY_LEN and all(ch in "0123456789abcdef" for ch in key):
                     out[str(rel).replace("\\", "/").strip("/")] = key
-        self._keys = out
-        return out
+        if out:
+            self._keys = out
+            return out
+
+        # Fallback: single WCDB_KEY from env (Windows / VM auto-extract pasted here).
+        env_key = (os.getenv("WCDB_KEY") or "").strip().lower()
+        if len(env_key) == HEX_KEY_LEN and all(ch in "0123456789abcdef" for ch in env_key):
+            for rel in self.message_db_rels():
+                out[rel] = env_key
+            for rel in (
+                "session/session.db",
+                "contact/contact.db",
+                "contact/contact_fts.db",
+                "hardlink/hardlink.db",
+            ):
+                out.setdefault(rel, env_key)
+            if out:
+                logger.info(
+                    "WeFlow reader: using WCDB_KEY for %d db paths (no usable all_keys.json)",
+                    len(out),
+                )
+                self._keys = out
+                return out
+
+        if keys_file_error is not None:
+            raise RuntimeError(
+                f"Could not read WeChat all_keys.json: {keys_file_error}"
+            ) from keys_file_error
+        raise RuntimeError(
+            "WeFlow keys missing: place all_keys.json under the account data dir, "
+            "or set WCDB_KEY (64-hex) from a Windows auto-extract."
+        )
 
     def _load_sqlite_lib(self):
         lib_path = self.lib_dir / "libWCDB.dylib"

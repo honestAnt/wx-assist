@@ -1,7 +1,12 @@
 """macOS hybrid WeChat backend.
 
-Read path: WeFlow-style local data access keyed by stable ``@chatroom`` ids.
-Write path: existing macOS Accessibility automation from ``mac_ui_backend``.
+Read path (auto-selected):
+- If ``WCDB_KEY`` is set: pure-Python SQLCipher via :class:`MacWcdbBridgeClient`
+  (no WeFlow dylib / ``all_keys.json`` required).
+- Else: WeFlow-style reader via :class:`MacWeFlowClient` (needs ``libWCDB.dylib``
+  and ``all_keys.json``, or ``WCDB_KEY`` as a key fallback).
+
+Write path: macOS Accessibility automation from ``mac_ui_backend``.
 """
 
 from __future__ import annotations
@@ -17,12 +22,24 @@ from typing import Any
 
 from .base import AbstractWeChatBackend, MessageCallback
 from .mac_ui_backend import MacUIAutomation
+from .mac_wcdb_bridge import MacWcdbBridgeClient, wcdb_key_configured
 from .mac_weflow_client import MacWeFlowClient
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_POLL_SEC = 1.0
 DEFAULT_LIMIT = 200
+
+
+def _default_mac_reader():
+    """Prefer WCDB_KEY + pure-Python decrypt; else WeFlow lib + all_keys.json."""
+    if wcdb_key_configured():
+        logger.info("macOS hybrid reader: MacWcdbBridgeClient (WCDB_KEY)")
+        return MacWcdbBridgeClient()
+    logger.info("macOS hybrid reader: MacWeFlowClient (all_keys.json + libWCDB)")
+    return MacWeFlowClient()
+
+
 SENT_TITLE_RE = re.compile(r"Sent macOS WeChat reply to (?P<username>\S+) via '(?P<title>[^']+)'")
 
 
@@ -41,7 +58,7 @@ class MacHybridBackend(AbstractWeChatBackend):
         self._groups = groups or []
         self._poll_sec = poll_sec
         self._store = store
-        self._client = client or MacWeFlowClient()
+        self._client = client or _default_mac_reader()
         self._automation = automation or MacUIAutomation()
         self._limit = limit
         self._service_error = ""
@@ -65,9 +82,10 @@ class MacHybridBackend(AbstractWeChatBackend):
 
     def start(self, callback: MessageCallback) -> None:
         self._running = True
+        reader_kind = type(self._client).__name__
         logger.info(
-            "MacHybridBackend starting in WeFlow target mode (groups=%s, poll=%ss)",
-            self._groups, self._poll_sec,
+            "MacHybridBackend starting (reader=%s, groups=%s, poll=%ss)",
+            reader_kind, self._groups, self._poll_sec,
         )
         self._automation.activate_wechat()
         self._prime_message_state()

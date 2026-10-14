@@ -191,7 +191,7 @@ export function Step1Prepare({ data, updateData, onDone }) {
   function finishUnsupported(message) {
     stopExtractPoll()
     setPhase('unsupported')
-    setMsg(message || '当前系统不支持从微信进程自动提取密钥。请先在 Windows 上自动提取，再在「手动配置」中粘贴 WCDB_KEY 与数据目录。')
+    setMsg(message || '当前系统不支持从微信进程自动提取密钥。请先在 Windows（实体机或本机虚拟机）上自动提取，再在「手动配置」中粘贴 WCDB_KEY 与数据目录。')
     setBusy(false)
     setIsManual(true)
   }
@@ -435,12 +435,13 @@ export function Step1Prepare({ data, updateData, onDone }) {
                 <span className="text-xs text-text-muted font-normal hidden group-open:inline">收起</span>
               </summary>
               <div className="mt-3 text-xs text-text-muted leading-relaxed space-y-2 font-normal">
-                <p><span className="font-semibold text-text-main">是什么：</span>连接凭证即 <code className="font-mono text-[11px] bg-bg-main px-1.5 py-0.5 rounded">WCDB_KEY</code>，必须是恰好 <span className="font-semibold text-text-main">64 位十六进制</span>（0-9、a-f）。</p>
+                <p><span className="font-semibold text-text-main">是什么：</span>连接凭证即 <code className="font-mono text-[11px] bg-bg-main px-1.5 py-0.5 rounded">WCDB_KEY</code>，必须是恰好 <span className="font-semibold text-text-main">64 位十六进制</span>（0-9、a-f）。本应用不会在 macOS 上从微信进程抓钥。</p>
+                <p><span className="font-semibold text-text-main">只有 Mac？</span>在本机用 UTM / Parallels 等安装 Windows 虚拟机 → 虚拟机里装微信 Windows 版并登录同一账号 → 运行摘星「自动连接」拿密钥 → 粘贴回本页。详情见 <code className="font-mono text-[11px] bg-bg-main px-1.5 py-0.5 rounded">doc/manual-wcdb-key.md</code> §2.1。</p>
                 <ol className="list-decimal list-inside space-y-1.5 pl-0.5">
-                  <li>在 <span className="font-semibold text-text-main">Windows</span> 上安装并登录微信电脑版，运行摘星。</li>
+                  <li>在 <span className="font-semibold text-text-main">Windows</span>（实体机或本机虚拟机）上安装并登录微信电脑版，运行摘星。</li>
                   <li>打开引导页「环境准备与连接」，使用 <span className="font-semibold text-text-main">自动连接</span> 完成提取（仅 Windows 支持）。</li>
                   <li>成功后打开 <span className="font-semibold text-text-main">系统配置 → 连接凭证</span>，点眼睛图标显示并复制 64 位密钥；也可从运行目录 <code className="font-mono text-[11px] bg-bg-main px-1.5 py-0.5 rounded">.env</code> 的 <code className="font-mono text-[11px] bg-bg-main px-1.5 py-0.5 rounded">WCDB_KEY=</code> 复制。</li>
-                  <li>回到本机，将密钥粘贴到下方「连接凭证」；填写同一账号的 <code className="font-mono text-[11px] bg-bg-main px-1.5 py-0.5 rounded">wxid</code> 与数据库路径（或下一步再选数据目录）。</li>
+                  <li>回到 Mac，将密钥粘贴到下方「连接凭证」；填写<strong>本机</strong>同一账号的 <code className="font-mono text-[11px] bg-bg-main px-1.5 py-0.5 rounded">wxid</code> 与数据库路径（或下一步再选数据目录）。</li>
                 </ol>
                 <p><span className="font-semibold text-text-main">数据目录：</span>应选择包含 <code className="font-mono text-[11px] bg-bg-main px-1.5 py-0.5 rounded">wxid_*</code> 文件夹的<strong>父目录</strong>。macOS 常见位置：</p>
                 <ul className="list-disc list-inside space-y-1 font-mono text-[11px] bg-bg-main/60 rounded-xl p-3 border border-border-main/40">

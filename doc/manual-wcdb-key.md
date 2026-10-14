@@ -1,7 +1,7 @@
 # 手动获取连接凭证（WCDB_KEY）
 
 macOS / Linux **不能**从本机微信进程自动提取密钥（该能力依赖 Windows 的 `wx_key.dll`）。
-需要先在 **Windows** 上用本应用完成自动提取，再把密钥填到其它系统的「手动配置」里。
+需要先在 **Windows**（实体机或本机虚拟机，见 §2.1）上用本应用完成自动提取，再把密钥填到其它系统的「手动配置」里。
 
 本文只说明本应用已经支持的流程，不介绍任何逆向、注入或第三方抓钥工具。
 
@@ -28,6 +28,21 @@ macOS / Linux **不能**从本机微信进程自动提取密钥（该能力依�
 6. 也可在运行目录的 `.env` 文件中查看 `WCDB_KEY=` 这一行（请勿把该文件提交到 Git 或发给他人）。
 
 Windows 打包若要自带自动提取，需在仓库 `lib/` 下放好 `wx_key.dll` 再打包；详见 [build.md](build.md)。
+
+## 2.1 只有 Mac、没有 Windows 电脑时（推荐：本机 Windows 虚拟机）
+
+本应用**不会**在 macOS 上从微信进程抓取密钥（不做内存扫描、注入或关闭 SIP）。
+若你只有一台 Mac，请用虚拟机跑 Windows，走与实体 Windows 相同的「自动连接」：
+
+1. 安装免费虚拟机（例如 [UTM](https://mac.getutm.app/)）或 Parallels / VMware，创建并安装 Windows 11。
+2. 在虚拟机里安装 **微信 Windows 版**，用**同一微信账号**登录（可扫码）。
+3. 在虚拟机里运行摘星（Windows 安装包，或把本仓库拷进虚拟机后 `python desktop.py`）。
+4. 引导页点 **自动连接**，拿到 64 位 `WCDB_KEY`。
+5. 把密钥复制到 Mac 端摘星的「手动配置」；`WECHAT_DATA_DIR` / `WXID` 填 **Mac 本机**已有的数据目录（不必从虚拟机拷库，只要是同一账号）。
+
+说明：密钥与账号绑定；Windows 虚拟机里自动提取的密钥，可用于解密 Mac 上同一账号的本地库。Mac 端默认后端 `mac_hybrid` 在配置了 `WCDB_KEY` 后会走纯 Python 读取，并仍用辅助功能发消息。
+
+不推荐、也不在文档中提供：关闭 SIP、重签名微信、使用第三方内存扫描工具获取密钥。
 
 ## 3. 在 macOS / Linux 上手动填写
 
@@ -93,7 +108,7 @@ Windows 打包若要自带自动提取，需在仓库 `lib/` 下放好 `wx_key.d
 | 微信数据目录 | `WECHAT_DATA_DIR` | `~/Library/Containers/com.tencent.xinWeChat/Data/Documents/xwechat_files` |
 | 账号 ID | `WXID` | `wxid_xxxxxxxx_xxxx`（完整文件夹名） |
 | 数据库路径 | `DB_PATH` | `$WECHAT_DATA_DIR/$WXID/db_storage/session/session.db` |
-| 后端 | `WECHAT_BACKEND` | `mac_hybrid`（也可留空，macOS 默认即此） |
+| 后端 | `WECHAT_BACKEND` | `mac_hybrid`（macOS 默认；有 `WCDB_KEY` 时自动用纯 Python 读取） |
 
 ### `.env` / `.env.macos` 模板
 
@@ -118,7 +133,7 @@ WECHAT_GROUPS=*
 
 `~/Library/Application Support/wx-assist/data/bot.log`
 
-macOS **不能**自动提取密钥；流程见上文「在 Windows 上自动获取」。
+macOS **不能**自动提取密钥；请用 Windows 实体机或本机 Windows 虚拟机（§2.1）自动获取后粘贴。
 
 
 ## 4. 校验要点
