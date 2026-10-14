@@ -5,6 +5,7 @@
 ## 快速入口
 
 - [上手指南](getting-started.md)
+- [手动获取连接凭证（WCDB_KEY）](manual-wcdb-key.md)
 - [项目架构](architecture.md)
 - [AI 后端与降级](modules/ai-backend.md)
 - [Agent 助手](modules/agent.md)

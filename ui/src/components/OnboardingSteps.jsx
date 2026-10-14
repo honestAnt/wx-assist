@@ -191,7 +191,7 @@ export function Step1Prepare({ data, updateData, onDone }) {
   function finishUnsupported(message) {
     stopExtractPoll()
     setPhase('unsupported')
-    setMsg(message || '当前系统不支持从微信进程自动提取密钥，请手动配置 WCDB_KEY 与数据目录。')
+    setMsg(message || '当前系统不支持从微信进程自动提取密钥。请先在 Windows 上自动提取，再在「手动配置」中粘贴 WCDB_KEY 与数据目录。')
     setBusy(false)
     setIsManual(true)
   }
@@ -337,7 +337,7 @@ export function Step1Prepare({ data, updateData, onDone }) {
         ok: !!diagnostics.platform?.key_hook,
         critical: false,
         help: !diagnostics.platform?.key_hook
-          ? 'macOS / Linux 无法使用 Windows 密钥钩子。请点右上角「手动配置」，填写 64 位 WCDB_KEY 与微信数据目录（或从 Windows 端拿到密钥后再配置）。'
+          ? 'macOS / Linux 无法使用 Windows 密钥钩子。请打开「手动配置」，按其中的「如何手动获取连接凭证」说明：在 Windows 自动提取后复制 64 位密钥到本机。'
           : null,
       },
       {
@@ -426,9 +426,32 @@ export function Step1Prepare({ data, updateData, onDone }) {
         {isManual ? (
           <div className="space-y-5">
             <p className="text-[14px] text-text-muted leading-relaxed">
-              您在此可手动填写连接凭证和相关环境信息。
+              您在此可手动填写连接凭证和相关环境信息。macOS / Linux 无法自动提取密钥时，请按下方说明从 Windows 端复制。
             </p>
-            <Field label="连接凭证 (64位十六进制)" hint="获取到的64位 hex 凭证" error={manualKey && (manualKey.trim().length !== 64 || !/^[0-9a-fA-F]+$/.test(manualKey.trim())) ? '连接凭证格式不正确，必须为64位16进制字符' : null}>
+            <details className="bg-bg-raised border border-border-main rounded-2xl p-4 group">
+              <summary className="text-sm font-semibold text-text-main cursor-pointer select-none list-none flex items-center justify-between gap-2">
+                <span>如何手动获取连接凭证（WCDB_KEY）？</span>
+                <span className="text-xs text-text-muted font-normal group-open:hidden">展开</span>
+                <span className="text-xs text-text-muted font-normal hidden group-open:inline">收起</span>
+              </summary>
+              <div className="mt-3 text-xs text-text-muted leading-relaxed space-y-2 font-normal">
+                <p><span className="font-semibold text-text-main">是什么：</span>连接凭证即 <code className="font-mono text-[11px] bg-bg-main px-1.5 py-0.5 rounded">WCDB_KEY</code>，必须是恰好 <span className="font-semibold text-text-main">64 位十六进制</span>（0-9、a-f）。</p>
+                <ol className="list-decimal list-inside space-y-1.5 pl-0.5">
+                  <li>在 <span className="font-semibold text-text-main">Windows</span> 上安装并登录微信电脑版，运行摘星。</li>
+                  <li>打开引导页「环境准备与连接」，使用 <span className="font-semibold text-text-main">自动连接</span> 完成提取（仅 Windows 支持）。</li>
+                  <li>成功后打开 <span className="font-semibold text-text-main">系统配置 → 连接凭证</span>，点眼睛图标显示并复制 64 位密钥；也可从运行目录 <code className="font-mono text-[11px] bg-bg-main px-1.5 py-0.5 rounded">.env</code> 的 <code className="font-mono text-[11px] bg-bg-main px-1.5 py-0.5 rounded">WCDB_KEY=</code> 复制。</li>
+                  <li>回到本机，将密钥粘贴到下方「连接凭证」；填写同一账号的 <code className="font-mono text-[11px] bg-bg-main px-1.5 py-0.5 rounded">wxid</code> 与数据库路径（或下一步再选数据目录）。</li>
+                </ol>
+                <p><span className="font-semibold text-text-main">数据目录：</span>应选择包含 <code className="font-mono text-[11px] bg-bg-main px-1.5 py-0.5 rounded">wxid_*</code> 文件夹的<strong>父目录</strong>。macOS 常见位置：</p>
+                <ul className="list-disc list-inside space-y-1 font-mono text-[11px] bg-bg-main/60 rounded-xl p-3 border border-border-main/40">
+                  <li>~/Documents/xwechat_files</li>
+                  <li>~/Library/Containers/com.tencent.xinWeChat/Data/Documents/xwechat_files</li>
+                </ul>
+                <p>也可在微信「设置 → 账号与存储 → 存储位置」查看实际路径。完整说明见仓库文档 <code className="font-mono text-[11px] bg-bg-main px-1.5 py-0.5 rounded">doc/manual-wcdb-key.md</code>。</p>
+                <p className="text-status-warn">请勿将密钥发送给他人或提交到公开仓库。</p>
+              </div>
+            </details>
+            <Field label="连接凭证 (64位十六进制)" hint="从 Windows「系统配置 → 连接凭证」复制的 64 位 hex" error={manualKey && (manualKey.trim().length !== 64 || !/^[0-9a-fA-F]+$/.test(manualKey.trim())) ? '连接凭证格式不正确，必须为64位16进制字符' : null}>
               <Input
                 type="password"
                 value={manualKey}
@@ -436,14 +459,14 @@ export function Step1Prepare({ data, updateData, onDone }) {
                 placeholder="例如：68a1f28b4c2..."
               />
             </Field>
-            <Field label="微信账号 ID (wxid)" hint="当前微信账号的内部 ID (以 wxid_ 开头，或自定义微信号)">
+            <Field label="微信账号 ID (wxid)" hint="与数据目录下 wxid_* 文件夹名一致（通常以 wxid_ 开头）">
               <Input
                 value={manualWxid}
                 onChange={setManualWxid}
                 placeholder="例如：wxid_xxxxxxxxxxxxxx"
               />
             </Field>
-            <Field label="聊天数据库路径 (db_path)" hint="微信设置 → 账号与存储 → 存储位置 → 数据目录下的 db_storage/session/">
+            <Field label="聊天数据库路径 (db_path)" hint="选 …/wxid_*/db_storage/session/session.db；也可先填密钥，下一步再选数据目录">
               <div className="flex items-center gap-2">
                 <Input
                   value={manualDbPath}
@@ -572,8 +595,8 @@ export function Step1Prepare({ data, updateData, onDone }) {
                     <div className="text-sm text-status-warn space-y-1">
                       <p className="font-semibold">当前系统不支持自动提取密钥</p>
                       <p className="text-xs text-text-muted font-normal leading-relaxed">
-                        {diagnostics.platform?.note || '请改用右上角「手动配置」，填写 WCDB_KEY 与微信数据目录。'}
-                        密钥可从 Windows 端自动提取后复制过来。
+                        {diagnostics.platform?.note || '请改用「手动配置」，填写 WCDB_KEY 与微信数据目录。'}
+                        {' '}请先在 Windows 上用「自动连接」提取密钥，再到本页粘贴；点「前往手动配置」可查看完整步骤。
                       </p>
                       <button
                         type="button"
@@ -681,7 +704,7 @@ export function Step1Prepare({ data, updateData, onDone }) {
                   <div className="space-y-1">
                     <p className="text-sm font-semibold text-status-warn">当前系统不支持自动连接</p>
                     <p className="text-xs text-text-muted font-normal leading-relaxed">
-                      {msg || 'macOS / Linux 无法从微信进程提取密钥。请手动填写 WCDB_KEY，并选择微信数据目录。'}
+                      {msg || 'macOS / Linux 无法从微信进程提取密钥。请先在 Windows 上自动提取 WCDB_KEY，再点「前往手动配置」粘贴，并选择微信数据目录。'}
                     </p>
                   </div>
                 </div>
@@ -1068,7 +1091,7 @@ export function Step2DataDir({ data, updateData, onDone }) {
                 <Warning size={18} weight="fill" className="text-status-warn shrink-0 mt-0.5" />
                 <div>
                   <span className="text-sm text-status-warn font-semibold">未检测到数据目录</span>
-                  <p className="text-xs text-text-muted mt-1">请点击「浏览」手动选择微信数据目录（包含 wxid_* 文件夹的父目录）</p>
+                  <p className="text-xs text-text-muted mt-1">请点击「浏览」手动选择微信数据目录（包含 wxid_* 文件夹的父目录）。macOS 常见：~/Documents/xwechat_files 或 ~/Library/Containers/com.tencent.xinWeChat/Data/Documents/xwechat_files</p>
                 </div>
               </div>
             )}

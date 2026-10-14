@@ -133,6 +133,8 @@ Windows、macOS、Linux 都可以从源码运行界面、推送、定时任务�
 
 Linux 没有官方微信客户端的密钥钩子。把 Windows 上已经解密或已经导出的数据目录指到 `WECHAT_DATA_DIR`，并填写 `WCDB_KEY` 后，纯 Python 读取路径可以工作。不能从本机微信进程里抓密钥，也不能用 Win32 窗口发送。
 
+macOS / Linux 请在引导页使用「手动配置」：先在 Windows 上自动提取 `WCDB_KEY`，再复制到本机。步骤见 [doc/manual-wcdb-key.md](doc/manual-wcdb-key.md)。
+
 语义检索（RAG）基于 ChromaDB + fastembed，100% 本地运行。模型文件随完整包分发，无需联网下载，不依赖任何云端服务。
 
 详细架构见 [doc/](doc/) 目录，打包步骤见 [doc/build.md](doc/build.md)。
