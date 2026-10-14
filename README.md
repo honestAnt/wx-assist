@@ -133,7 +133,19 @@ Windows、macOS、Linux 都可以从源码运行界面、推送、定时任务�
 
 Linux 没有官方微信客户端的密钥钩子。把 Windows 上已经解密或已经导出的数据目录指到 `WECHAT_DATA_DIR`，并填写 `WCDB_KEY` 后，纯 Python 读取路径可以工作。不能从本机微信进程里抓密钥，也不能用 Win32 窗口发送。
 
-macOS / Linux 请在引导页使用「手动配置」：先在 Windows 上自动提取 `WCDB_KEY`，再复制到本机。步骤见 [doc/manual-wcdb-key.md](doc/manual-wcdb-key.md)。
+### 在 macOS 上如何获取 `WCDB_KEY`
+
+macOS **不能**从本机微信进程自动提取连接凭证（该步骤依赖 Windows 的 `wx_key.dll`）。本项目不提供、也不支持在 Mac 上做进程注入或内存扫描来抓钥。
+
+推荐做法：
+
+1. 使用 **Windows 电脑**，或在本机用 **UTM / Parallels / VMware** 安装 Windows 虚拟机。
+2. 在 Windows 里安装并登录**同一微信账号**的电脑版，运行摘星。
+3. 引导页「环境准备与连接」→ **自动连接**，拿到 64 位十六进制 `WCDB_KEY`。
+4. 打开 Windows 端 **系统配置 → 连接凭证**（或 `.env` 中的 `WCDB_KEY=`），复制密钥。
+5. 回到 Mac 摘星，引导页点 **手动配置**，粘贴密钥，并填写本机同一账号的 `WXID` / 微信数据目录。
+
+填好后，macOS 默认后端 `mac_hybrid` 会用纯 Python 读取本地库，发送仍走辅助功能。完整步骤、路径模板与安全注意见 **[doc/manual-wcdb-key.md](doc/manual-wcdb-key.md)**（含 §2.1「只有 Mac」虚拟机说明）。
 
 语义检索（RAG）基于 ChromaDB + fastembed，100% 本地运行。模型文件随完整包分发，无需联网下载，不依赖任何云端服务。
 
