@@ -29,7 +29,7 @@ pyinstaller build.spec --noconfirm
 pyinstaller build_rag.spec --noconfirm
 ```
 
-两个 spec 共用 `packaging/pyi_common.py`。它按当前系统选择：
+两个 spec 共用 `pyi_packaging/pyi_common.py`。它按当前系统选择：
 
 - Windows：打入 WebView2 运行库；若存在 `lib/wx_key.dll` 则一并打入；写入 exe 版本资源。
 - macOS：生成 `.app`（Cocoa WebView）。不打 Windows DLL。

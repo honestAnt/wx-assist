@@ -13,7 +13,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(SPECPATH)))
 
-from packaging.pyi_common import collect
+from pyi_packaging.pyi_common import collect
 
 plan = collect(SPECPATH, with_rag=False, exe_name="wx-assist_no_rag")
 _analysis = plan["analysis"]

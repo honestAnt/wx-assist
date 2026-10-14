@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from packaging.pyi_common import collect, hiddenimports
+from pyi_packaging.pyi_common import collect, hiddenimports
 from src.platform_support import (
     acquire_single_instance,
     default_wechat_backend,
