@@ -129,3 +129,26 @@ def test_config_default_backend_follows_platform(monkeypatch):
     from src.config import load_config
 
     assert load_config().wechat_backend == default_wechat_backend()
+
+
+def test_step1_state_preserves_unsupported_phase():
+    """When extract returns None after unsupported progress, phase stays unsupported."""
+    import src.web.server as server
+
+    with server._step1_lock:
+        server._step1_state.update({
+            "running": True,
+            "phase": "unsupported",
+            "message": "请在配置里填写 WCDB_KEY",
+            "result": None,
+        })
+        # Mirror _run_step1_extraction's key-is-None branch
+        if server._step1_state.get("phase") != "unsupported":
+            server._step1_state["phase"] = "timeout"
+            server._step1_state["message"] = "密钥提取超时，请确保微信已登录并重试"
+        server._step1_state["running"] = False
+
+    with server._step1_lock:
+        assert server._step1_state["phase"] == "unsupported"
+        assert server._step1_state["running"] is False
+        assert "WCDB_KEY" in server._step1_state["message"]

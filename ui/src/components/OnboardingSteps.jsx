@@ -1,4 +1,4 @@
-﻿import { useState, useEffect } from 'react'
+﻿import { useState, useEffect, useRef } from 'react'
 import { motion } from 'framer-motion'
 import { CheckCircle, ArrowRight, Spinner, XCircle, Warning, MagnifyingGlass, CircleNotch, Lightning, ChatCircle, CaretDown, CaretRight, Folder } from '@phosphor-icons/react'
 import { Field, Select, Input, Toggle, spring, API_BASE } from './SharedComponents'
@@ -8,10 +8,11 @@ const API = API_BASE
 // ── Step 1: Key Extraction & Diagnostics ──────────────────────────────
 
 export function Step1Prepare({ data, updateData, onDone }) {
-  const [phase, setPhase] = useState('idle') // idle | extracting | done | timeout | error
+  const [phase, setPhase] = useState('idle') // idle | extracting | done | timeout | error | unsupported
   const [msg, setMsg] = useState('')
   const [busy, setBusy] = useState(false)
   const [isManual, setIsManual] = useState(false)
+  const extractPollRef = useRef(null)
   const [manualKey, setManualKey] = useState(data.key || '')
   const [manualWxid, setManualWxid] = useState(data.wxid || '')
   const [manualDbPath, setManualDbPath] = useState(data.db_path || '')
@@ -158,13 +159,45 @@ export function Step1Prepare({ data, updateData, onDone }) {
     fetchDiagnostics()
   }, [])
 
+  useEffect(() => {
+    return () => {
+      if (extractPollRef.current) {
+        clearInterval(extractPollRef.current)
+        extractPollRef.current = null
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    // Off Windows, auto key extraction cannot work — surface manual config early.
+    if (diagnostics && diagnostics.platform && diagnostics.platform.key_hook === false) {
+      setIsManual(true)
+    }
+  }, [diagnostics])
+
   const isManualValid =
     manualKey.trim().length === 64 &&
     /^[0-9a-fA-F]+$/.test(manualKey.trim()) &&
     manualWxid.trim().length > 0 &&
     manualDbPath.trim().length > 0;
 
+  function stopExtractPoll() {
+    if (extractPollRef.current) {
+      clearInterval(extractPollRef.current)
+      extractPollRef.current = null
+    }
+  }
+
+  function finishUnsupported(message) {
+    stopExtractPoll()
+    setPhase('unsupported')
+    setMsg(message || '当前系统不支持从微信进程自动提取密钥。请先在 Windows（实体机或本机虚拟机）上自动提取，再在「手动配置」中粘贴 WCDB_KEY 与数据目录。')
+    setBusy(false)
+    setIsManual(true)
+  }
+
   async function handleExtract() {
+    stopExtractPoll()
     setBusy(true)
     setPhase('extracting')
     setMsg('')
@@ -172,6 +205,10 @@ export function Step1Prepare({ data, updateData, onDone }) {
       const startRes = await fetch(`${API}/api/onboarding/step1`, { method: 'POST' })
       const start = await startRes.json()
       if (!start.ok) {
+        if (start.phase === 'unsupported') {
+          finishUnsupported(start.message)
+          return
+        }
         setPhase('error')
         setMsg(start.message || '启动失败')
         setBusy(false)
@@ -187,7 +224,7 @@ export function Step1Prepare({ data, updateData, onDone }) {
               || s.phase === 'hooking' || s.phase === 'hooking_restart') {
             setMsg(s.message || '')
           } else if ((s.phase === 'done' || s.phase === 'done_need_step2') && s.result) {
-            clearInterval(poll)
+            stopExtractPoll()
             updateData({
               key: s.result.key,
               wxid: s.result.wxid || '',
@@ -205,14 +242,17 @@ export function Step1Prepare({ data, updateData, onDone }) {
               setBusy(false)
               saveWechatConfig('', '', s.result.key, s.result.wechat_data_dir || '').then(() => onDone(false))
             }
+          } else if (s.phase === 'unsupported') {
+            finishUnsupported(s.message)
           } else if (s.phase === 'timeout' || s.phase === 'error') {
-            clearInterval(poll)
+            stopExtractPoll()
             setPhase(s.phase === 'timeout' ? 'timeout' : 'error')
             setMsg(s.message || '提取失败')
             setBusy(false)
           }
         } catch {}
       }, 1000)
+      extractPollRef.current = poll
     } catch {
       setPhase('error')
       setMsg('无法连接服务器')
@@ -287,6 +327,18 @@ export function Step1Prepare({ data, updateData, onDone }) {
         ok: diagnostics.wechat.ok,
         critical: false,
         help: !diagnostics.wechat.ok ? '自动连接需要微信处于登录状态。若微信已登录但检测为未运行，请检查微信版本。' : null,
+      },
+      {
+        key: 'key_hook',
+        title: '自动提取密钥',
+        desc: diagnostics.platform?.key_hook
+          ? '当前系统支持从微信进程自动提取'
+          : (diagnostics.platform?.note || '当前系统不支持自动提取，请手动填写 WCDB_KEY'),
+        ok: !!diagnostics.platform?.key_hook,
+        critical: false,
+        help: !diagnostics.platform?.key_hook
+          ? 'macOS / Linux 无法使用 Windows 密钥钩子。请打开「手动配置」，按其中的「如何手动获取连接凭证」说明：在 Windows 自动提取后复制 64 位密钥到本机。'
+          : null,
       },
       {
         key: 'env',
@@ -374,9 +426,33 @@ export function Step1Prepare({ data, updateData, onDone }) {
         {isManual ? (
           <div className="space-y-5">
             <p className="text-[14px] text-text-muted leading-relaxed">
-              您在此可手动填写连接凭证和相关环境信息。
+              您在此可手动填写连接凭证和相关环境信息。macOS / Linux 无法自动提取密钥时，请按下方说明从 Windows 端复制。
             </p>
-            <Field label="连接凭证 (64位十六进制)" hint="获取到的64位 hex 凭证" error={manualKey && (manualKey.trim().length !== 64 || !/^[0-9a-fA-F]+$/.test(manualKey.trim())) ? '连接凭证格式不正确，必须为64位16进制字符' : null}>
+            <details className="bg-bg-raised border border-border-main rounded-2xl p-4 group">
+              <summary className="text-sm font-semibold text-text-main cursor-pointer select-none list-none flex items-center justify-between gap-2">
+                <span>如何手动获取连接凭证（WCDB_KEY）？</span>
+                <span className="text-xs text-text-muted font-normal group-open:hidden">展开</span>
+                <span className="text-xs text-text-muted font-normal hidden group-open:inline">收起</span>
+              </summary>
+              <div className="mt-3 text-xs text-text-muted leading-relaxed space-y-2 font-normal">
+                <p><span className="font-semibold text-text-main">是什么：</span>连接凭证即 <code className="font-mono text-[11px] bg-bg-main px-1.5 py-0.5 rounded">WCDB_KEY</code>，必须是恰好 <span className="font-semibold text-text-main">64 位十六进制</span>（0-9、a-f）。本应用不会在 macOS 上从微信进程抓钥。</p>
+                <p><span className="font-semibold text-text-main">只有 Mac？</span>在本机用 UTM / Parallels 等安装 Windows 虚拟机 → 虚拟机里装微信 Windows 版并登录同一账号 → 运行摘星「自动连接」拿密钥 → 粘贴回本页。详情见 <code className="font-mono text-[11px] bg-bg-main px-1.5 py-0.5 rounded">doc/manual-wcdb-key.md</code> §2.1。</p>
+                <ol className="list-decimal list-inside space-y-1.5 pl-0.5">
+                  <li>在 <span className="font-semibold text-text-main">Windows</span>（实体机或本机虚拟机）上安装并登录微信电脑版，运行摘星。</li>
+                  <li>打开引导页「环境准备与连接」，使用 <span className="font-semibold text-text-main">自动连接</span> 完成提取（仅 Windows 支持）。</li>
+                  <li>成功后打开 <span className="font-semibold text-text-main">系统配置 → 连接凭证</span>，点眼睛图标显示并复制 64 位密钥；也可从运行目录 <code className="font-mono text-[11px] bg-bg-main px-1.5 py-0.5 rounded">.env</code> 的 <code className="font-mono text-[11px] bg-bg-main px-1.5 py-0.5 rounded">WCDB_KEY=</code> 复制。</li>
+                  <li>回到 Mac，将密钥粘贴到下方「连接凭证」；填写<strong>本机</strong>同一账号的 <code className="font-mono text-[11px] bg-bg-main px-1.5 py-0.5 rounded">wxid</code> 与数据库路径（或下一步再选数据目录）。</li>
+                </ol>
+                <p><span className="font-semibold text-text-main">数据目录：</span>应选择包含 <code className="font-mono text-[11px] bg-bg-main px-1.5 py-0.5 rounded">wxid_*</code> 文件夹的<strong>父目录</strong>。macOS 常见位置：</p>
+                <ul className="list-disc list-inside space-y-1 font-mono text-[11px] bg-bg-main/60 rounded-xl p-3 border border-border-main/40">
+                  <li>~/Documents/xwechat_files</li>
+                  <li>~/Library/Containers/com.tencent.xinWeChat/Data/Documents/xwechat_files</li>
+                </ul>
+                <p>也可在微信「设置 → 账号与存储 → 存储位置」查看实际路径。完整说明见仓库文档 <code className="font-mono text-[11px] bg-bg-main px-1.5 py-0.5 rounded">doc/manual-wcdb-key.md</code>。</p>
+                <p className="text-status-warn">请勿将密钥发送给他人或提交到公开仓库。</p>
+              </div>
+            </details>
+            <Field label="连接凭证 (64位十六进制)" hint="从 Windows「系统配置 → 连接凭证」复制的 64 位 hex" error={manualKey && (manualKey.trim().length !== 64 || !/^[0-9a-fA-F]+$/.test(manualKey.trim())) ? '连接凭证格式不正确，必须为64位16进制字符' : null}>
               <Input
                 type="password"
                 value={manualKey}
@@ -384,14 +460,14 @@ export function Step1Prepare({ data, updateData, onDone }) {
                 placeholder="例如：68a1f28b4c2..."
               />
             </Field>
-            <Field label="微信账号 ID (wxid)" hint="当前微信账号的内部 ID (以 wxid_ 开头，或自定义微信号)">
+            <Field label="微信账号 ID (wxid)" hint="与数据目录下 wxid_* 文件夹名一致（通常以 wxid_ 开头）">
               <Input
                 value={manualWxid}
                 onChange={setManualWxid}
                 placeholder="例如：wxid_xxxxxxxxxxxxxx"
               />
             </Field>
-            <Field label="聊天数据库路径 (db_path)" hint="微信设置 → 账号与存储 → 存储位置 → 数据目录下的 db_storage/session/">
+            <Field label="聊天数据库路径 (db_path)" hint="选 …/wxid_*/db_storage/session/session.db；也可先填密钥，下一步再选数据目录">
               <div className="flex items-center gap-2">
                 <Input
                   value={manualDbPath}
@@ -514,24 +590,52 @@ export function Step1Prepare({ data, updateData, onDone }) {
 
                 {renderChecklist()}
 
+                {diagnostics && diagnostics.platform?.key_hook === false && (
+                  <div className="bg-status-warn-soft border border-status-warn/20 rounded-2xl p-4 flex items-start gap-3">
+                    <Warning size={20} weight="fill" className="text-status-warn shrink-0 mt-0.5" />
+                    <div className="text-sm text-status-warn space-y-1">
+                      <p className="font-semibold">当前系统不支持自动提取密钥</p>
+                      <p className="text-xs text-text-muted font-normal leading-relaxed">
+                        {diagnostics.platform?.note || '请改用「手动配置」，填写 WCDB_KEY 与微信数据目录。'}
+                        {' '}请先在 Windows 上用「自动连接」提取密钥，再到本页粘贴；点「前往手动配置」可查看完整步骤。
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setIsManual(true)}
+                        className="mt-2 px-4 py-2 bg-brand-green-hover text-white hover:opacity-90 text-xs font-semibold rounded-full cursor-pointer transition-colors"
+                      >
+                        前往手动配置
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 <div className="pt-4 border-t border-border-main/40 flex items-center gap-4">
                   <motion.button
                     whileTap={{ scale: 0.97 }} whileHover={{ scale: 1.02 }}
                     onClick={handleExtract}
-                    disabled={diagnosticsLoading || (diagnostics && !diagnostics.wechat.ok)}
+                    disabled={
+                      diagnosticsLoading
+                      || (diagnostics && !diagnostics.wechat.ok)
+                      || (diagnostics && diagnostics.platform?.key_hook === false)
+                    }
                     className={`w-48 py-2.5 rounded-full text-[14px] font-semibold tracking-wide transition-all duration-300 flex items-center justify-center gap-2 cursor-pointer ${
-                      diagnostics && diagnostics.wechat.ok
+                      diagnostics && diagnostics.wechat.ok && diagnostics.platform?.key_hook !== false
                         ? 'bg-brand-green-hover text-white hover:opacity-90 animate-pulse'
                         : 'bg-bg-raised text-text-muted border border-border-main cursor-not-allowed'
                     }`}
                   >
                     开始自动获取
                   </motion.button>
-                  {diagnostics && !diagnostics.wechat.ok && (
+                  {diagnostics && diagnostics.platform?.key_hook === false ? (
+                    <span className="text-xs text-status-warn bg-status-warn-soft border border-status-warn/20 px-4 py-2 rounded-full font-medium">
+                      请使用手动配置填写密钥
+                    </span>
+                  ) : diagnostics && !diagnostics.wechat.ok ? (
                     <span className="text-xs text-status-warn bg-status-warn-soft border border-status-warn/20 px-4 py-2 rounded-full font-medium">
                       请登录微信电脑端，否则无法自动获取
                     </span>
-                  )}
+                  ) : null}
                 </div>
               </div>
             )}
@@ -560,7 +664,7 @@ export function Step1Prepare({ data, updateData, onDone }) {
                   {msg && <div className="text-text-muted">&gt; {msg}</div>}
                 </div>
                 <button
-                  onClick={() => setPhase('idle')}
+                  onClick={() => { stopExtractPoll(); setPhase('idle'); setBusy(false) }}
                   className="px-4 py-2 bg-bg-raised hover:bg-bg-card text-xs text-text-muted hover:text-text-main rounded-full border border-border-main cursor-pointer transition-colors"
                 >
                   取消并返回
@@ -586,6 +690,34 @@ export function Step1Prepare({ data, updateData, onDone }) {
                   </button>
                   <button
                     onClick={() => setPhase('idle')}
+                    className="px-4 py-2 bg-bg-raised hover:bg-bg-card text-sm text-text-muted rounded-full border border-border-main cursor-pointer transition-colors"
+                  >
+                    返回诊断
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {phase === 'unsupported' && (
+              <div className="space-y-6">
+                <div className="bg-status-warn-soft border border-status-warn/20 rounded-2xl p-6 flex items-start gap-4 text-status-warn">
+                  <Warning size={24} weight="fill" className="text-status-warn shrink-0" />
+                  <div className="space-y-1">
+                    <p className="text-sm font-semibold text-status-warn">当前系统不支持自动连接</p>
+                    <p className="text-xs text-text-muted font-normal leading-relaxed">
+                      {msg || 'macOS / Linux 无法从微信进程提取密钥。请先在 Windows 上自动提取 WCDB_KEY，再点「前往手动配置」粘贴，并选择微信数据目录。'}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => { setIsManual(true); setPhase('idle') }}
+                    className="px-4 py-2 bg-brand-green-hover text-white hover:opacity-90 text-sm font-semibold rounded-full cursor-pointer transition-colors"
+                  >
+                    前往手动配置
+                  </button>
+                  <button
+                    onClick={() => { stopExtractPoll(); setPhase('idle'); setBusy(false) }}
                     className="px-4 py-2 bg-bg-raised hover:bg-bg-card text-sm text-text-muted rounded-full border border-border-main cursor-pointer transition-colors"
                   >
                     返回诊断
@@ -960,7 +1092,7 @@ export function Step2DataDir({ data, updateData, onDone }) {
                 <Warning size={18} weight="fill" className="text-status-warn shrink-0 mt-0.5" />
                 <div>
                   <span className="text-sm text-status-warn font-semibold">未检测到数据目录</span>
-                  <p className="text-xs text-text-muted mt-1">请点击「浏览」手动选择微信数据目录（包含 wxid_* 文件夹的父目录）</p>
+                  <p className="text-xs text-text-muted mt-1">请点击「浏览」手动选择微信数据目录（包含 wxid_* 文件夹的父目录）。macOS 常见：~/Documents/xwechat_files 或 ~/Library/Containers/com.tencent.xinWeChat/Data/Documents/xwechat_files</p>
                 </div>
               </div>
             )}

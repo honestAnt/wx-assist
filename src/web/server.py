@@ -2816,6 +2816,27 @@ class _UIHandler(SimpleHTTPRequestHandler):
 
         # ── API: Onboarding step 1 - start extraction (async) ─────────
         if self.path == "/api/onboarding/step1":
+            from src.platform_support import supports_key_hook
+
+            # macOS/Linux cannot hook WeChat for WCDB_KEY — fail fast with a
+            # clear phase so the UI stops spinning and guides manual config.
+            if not supports_key_hook():
+                unsupported_msg = (
+                    "当前系统不能从微信进程自动提取密钥（依赖 Windows 的 wx_key.dll）。"
+                    "请改用「手动配置」填写 WCDB_KEY，并设置微信数据目录。"
+                )
+                with _step1_lock:
+                    _step1_state["running"] = False
+                    _step1_state["phase"] = "unsupported"
+                    _step1_state["message"] = unsupported_msg
+                    _step1_state["result"] = None
+                self.send_json({
+                    "ok": False,
+                    "phase": "unsupported",
+                    "message": unsupported_msg,
+                })
+                return
+
             with _step1_lock:
                 if _step1_state["running"]:
                     self.send_json({"ok": False, "phase": "busy", "message": "正在提取中..."})
