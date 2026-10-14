@@ -71,6 +71,12 @@ class WcdbBackend(AbstractWeChatBackend):
         self._poll_sec = poll_sec
         self._store = store  # MessageStore fallback for name resolution
         self._running = False
+        from ..platform_support import supports_window_send
+        if not supports_window_send():
+            logger.warning(
+                "当前系统不能通过 Win32 窗口发送微信消息。"
+                "本地数据库读取仍然可用（需要 WCDB_KEY 与 WECHAT_DATA_DIR）。"
+            )
         self._client: Optional[WcdbNativeClient] = None
         self._window = WeChatWindowController()
         self._talker_ids: dict[str, str] = {}

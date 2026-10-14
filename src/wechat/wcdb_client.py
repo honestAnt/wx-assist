@@ -51,7 +51,8 @@ def _find_wxid_and_dbpath(custom_base_dir: str = ""):
     """自动探测微信 wxid 与数据根目录。
 
     ``WXID`` / ``DB_PATH`` 环境变量优先；否则扫描传入目录，再回退到
-    ``Documents\\xwechat_files``、``Documents\\WeChat Files``。
+    当前系统的默认数据目录（Windows 的 Documents、macOS 容器目录、
+    Linux 的 Documents / ``.xwechat`` 等）。
     """
     env_wxid = os.environ.get("WXID", "").strip()
     env_db_path = os.environ.get("DB_PATH", "").strip()
@@ -83,14 +84,9 @@ def _find_wxid_and_dbpath(custom_base_dir: str = ""):
                 custom_base_dir,
             )
 
-    try:
-        import ctypes
-        buf = ctypes.create_unicode_buffer(260)
-        ctypes.windll.shell32.SHGetFolderPathW(0, 5, 0, 0, buf)  # CSIDL_PERSONAL
-        documents = Path(buf.value)
-    except Exception:                              # noqa: BLE001
-        documents = Path.home() / "Documents"
-    for default_base in (documents / "xwechat_files", documents / "WeChat Files"):
+    from src.platform_support import default_wechat_data_dirs
+
+    for default_base in default_wechat_data_dirs():
         if default_base not in candidates:
             candidates.append(default_base)
 

@@ -18,14 +18,20 @@ from ctypes import wintypes
 import logging
 import os
 import struct
+import sys
 import tempfile
 import time
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-kernel32 = ct.WinDLL("kernel32", use_last_error=True)
-advapi32 = ct.WinDLL("advapi32", use_last_error=True)
+# Win32 DLLs exist only on Windows. Importing this module on macOS/Linux
+# must not crash; the hook itself stays Windows-only.
+kernel32 = None
+advapi32 = None
+if sys.platform == "win32":
+    kernel32 = ct.WinDLL("kernel32", use_last_error=True)
+    advapi32 = ct.WinDLL("advapi32", use_last_error=True)
 
 # ── Win32 API declarations ─────────────────────────────────────────────
 
@@ -45,21 +51,25 @@ WAIT_TIMEOUT = 0x00000102
 
 TH32CS_SNAPPROCESS = 0x00000002
 
-kernel32.OpenProcess.restype = wintypes.HANDLE
-kernel32.VirtualAllocEx.restype = ct.c_void_p
-kernel32.VirtualAllocEx.argtypes = [
-    wintypes.HANDLE, ct.c_void_p, ct.c_size_t, wintypes.DWORD, wintypes.DWORD,
-]
-kernel32.WriteProcessMemory.restype = wintypes.BOOL
-kernel32.CreateRemoteThread.restype = wintypes.HANDLE
-kernel32.WaitForSingleObject.restype = wintypes.DWORD
-kernel32.ResumeThread.restype = wintypes.DWORD
-kernel32.TerminateProcess.restype = wintypes.BOOL
+if kernel32 is not None:
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.VirtualAllocEx.restype = ct.c_void_p
+    kernel32.VirtualAllocEx.argtypes = [
+        wintypes.HANDLE, ct.c_void_p, ct.c_size_t, wintypes.DWORD, wintypes.DWORD,
+    ]
+    kernel32.WriteProcessMemory.restype = wintypes.BOOL
+    kernel32.CreateRemoteThread.restype = wintypes.HANDLE
+    kernel32.WaitForSingleObject.restype = wintypes.DWORD
+    kernel32.ResumeThread.restype = wintypes.DWORD
+    kernel32.TerminateProcess.restype = wintypes.BOOL
 
 # ── WeChat process management ────────────────────────────────────────────
 
 def _find_wechat_pid():
     """Find a running WeChat process PID."""
+    if kernel32 is None:
+        return None, None
+
     class PROCESSENTRY32W(ct.Structure):
         _fields_ = [
             ("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD),
@@ -226,6 +236,10 @@ def inject_and_capture_key(timeout_sec=30):
 
     Returns the hex key string, or None if extraction fails.
     """
+    if kernel32 is None:
+        logger.error("DLL key injection is only available on Windows")
+        return None
+
     # Locate DLL
     dll_path = _find_hook_dll()
     if not dll_path:

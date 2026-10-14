@@ -69,11 +69,13 @@ def _find_or_create_env() -> Path:
         return env_path
 
     # 3. Last resort: create minimal .env in app home
+    from src.platform_support import default_wechat_backend
+
     env_path = Path(".env")
     env_path.write_text(
         "AI_BACKEND=deepseek\n"
         "DEEPSEEK_API_KEY=\n"
-        "WECHAT_BACKEND=wcdb\n",
+        f"WECHAT_BACKEND={default_wechat_backend()}\n",
         encoding="utf-8",
     )
     logger.info("Created minimal .env at %s", env_path.resolve())
@@ -86,11 +88,9 @@ def _detect_default_data_dir() -> str:
     Returns the base directory path string, or empty string if not found.
     Used by the UI to show what auto-detection would use.
     """
-    import os as _os
-    candidates = [
-        Path(_os.environ.get("USERPROFILE", "")) / "Documents" / "xwechat_files",
-        Path(_os.environ.get("USERPROFILE", "")) / "Documents" / "WeChat Files",
-    ]
+    from src.platform_support import default_wechat_data_dirs
+
+    candidates = list(default_wechat_data_dirs())
     for base in candidates:
         if not base.exists():
             continue
@@ -124,11 +124,9 @@ def _detect_wxid_and_db_path():
         if custom.exists() and custom.is_dir():
             candidates.append(custom)
 
-    # 2. Default locations
-    candidates += [
-        Path(_os.environ.get("USERPROFILE", "")) / "Documents" / "xwechat_files",
-        Path(_os.environ.get("USERPROFILE", "")) / "Documents" / "WeChat Files",
-    ]
+    # 2. Default locations for this operating system
+    from src.platform_support import default_wechat_data_dirs
+    candidates += list(default_wechat_data_dirs())
     for base in candidates:
         if not base.exists():
             continue
@@ -300,8 +298,9 @@ def _run_step1_extraction():
                     _step1_state["running"] = False
         else:
             with _step1_lock:
-                _step1_state["phase"] = "timeout"
-                _step1_state["message"] = "密钥提取超时，请确保微信已登录并重试"
+                if _step1_state.get("phase") != "unsupported":
+                    _step1_state["phase"] = "timeout"
+                    _step1_state["message"] = "密钥提取超时，请确保微信已登录并重试"
                 _step1_state["running"] = False
 
     except Exception as e:
@@ -486,34 +485,9 @@ def _platform_dependency_report(system_name=None, import_checker=None, command_c
 
 def _platform_wechat_report(system_name=None):
     """Return a platform-aware WeChat process status."""
-    import os as _os
-    import platform
-    import subprocess
-
-    system = system_name or platform.system()
-    if system == "Darwin":
-        app_name = _os.getenv("MAC_WECHAT_APP_NAME", "WeChat")
-        try:
-            result = subprocess.run(
-                ["pgrep", "-x", app_name],
-                capture_output=True,
-                text=True,
-                timeout=2,
-                check=False,
-            )
-            if result.returncode == 0 and result.stdout.strip():
-                pid = result.stdout.strip().splitlines()[0]
-                return {"ok": True, "value": f"微信运行中 (PID {pid})", "error": None}
-            return {"ok": False, "value": "微信未运行", "error": "请启动 macOS 微信并授权辅助功能权限"}
-        except Exception as e:
-            return {"ok": False, "value": f"微信检测出错: {e}", "error": str(e)}
-
     try:
-        from src.wechat.native.injector import _find_wechat_pid
-        wx_pid, wx_name = _find_wechat_pid()
-        wx_ok = wx_pid is not None
-        wx_val = f"微信运行中 (PID {wx_pid})" if wx_ok else "微信未运行"
-        return {"ok": wx_ok, "value": wx_val, "error": None if wx_ok else "请登录微信电脑端"}
+        from src.platform_support import wechat_process_report
+        return wechat_process_report(system_name)
     except Exception as e:
         return {"ok": False, "value": f"微信检测出错: {e}", "error": str(e)}
 
@@ -2822,7 +2796,10 @@ class _UIHandler(SimpleHTTPRequestHandler):
             db_perm_val = "数据库读写权限正常" if db_perm_ok else f"数据库权限错误: {db_perm_err}"
 
             # Build labelled diagnostics with detail on failure
+            from src.platform_support import capability_summary
+
             diag = {
+                "platform": {**capability_summary(), "ok": True, "label": "运行平台"},
                 "python": {"ok": python_ok, "value": python_val, "error": None,
                            "label": "Python 版本", "detail": python_val if not python_ok else None},
                 "requirements": {**req_report, "label": "依赖包",

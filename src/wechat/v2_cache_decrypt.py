@@ -197,9 +197,9 @@ def decrypt_v2_cache(data: bytes, aes_key: str, xor_key: int) -> Optional[bytes]
 def extract_uin_from_kvcomm() -> Optional[int]:
     """Extract WeChat uin from kvcomm statistic filenames.
 
-    Scans $APPDATA/Tencent/xwechat/net/kvcomm/ (and net_1/) for files
-    containing uin patterns, then validates via XOR key voting against
-    actual V2 .dat file tail bytes.
+    Scans platform kvcomm directories (Windows: ``%APPDATA%/Tencent/xwechat``)
+    for files containing uin patterns, then validates via XOR key voting
+    against actual V2 .dat file tail bytes.
 
     The uin can appear in multiple filename patterns:
       key_0_{uin}_..._input.statistic       (appid=0, uin in 2nd slot)
@@ -209,15 +209,11 @@ def extract_uin_from_kvcomm() -> Optional[int]:
 
     Returns the validated uin as int, or None if not found.
     """
-    appdata = os.environ.get('APPDATA', '')
-    if not appdata:
-        return None
+    from src.platform_support import kvcomm_dirs
 
-    # Search both net/ and net_1/ directories
-    candidate_dirs = [
-        Path(appdata) / 'Tencent' / 'xwechat' / 'net' / 'kvcomm',
-        Path(appdata) / 'Tencent' / 'xwechat' / 'net_1' / 'kvcomm',
-    ]
+    candidate_dirs = kvcomm_dirs()
+    if not candidate_dirs:
+        return None
 
     # Collect all candidate uins from filenames
     # Pattern 1: key_0_{uin}_... or monitordata_0_... → uin is 2nd number

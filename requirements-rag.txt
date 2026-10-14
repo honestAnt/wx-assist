@@ -1,0 +1,9 @@
+# Optional semantic-search stack. The app runs without these modules and
+# disables RAG until they are installed.
+#
+#   pip install -r requirements-rag.txt
+#
+numpy>=1.26
+chromadb>=0.5.0
+fastembed>=0.4.0
+onnxruntime>=1.17.0

@@ -1,7 +1,6 @@
 """Configuration loading from .env file."""
 
 import logging
-import msvcrt
 import os
 import re
 import sys
@@ -10,6 +9,8 @@ from pathlib import Path
 from urllib.parse import unquote
 
 from dotenv import load_dotenv
+
+from .platform_support import default_wechat_backend, try_lock_file, unlock_file
 
 logger = logging.getLogger(__name__)
 
@@ -55,8 +56,9 @@ PROJECT_ROOT = _resolve_project_root()
 def write_env_atomic(env_path: Path, updates: dict[str, str]) -> None:
     """Thread- and process-safe atomic update of .env key=value pairs.
 
-    Uses a file lock (.env.lock) via msvcrt (Windows) to prevent concurrent
-    writes from overwriting each other.  Reads the existing file, applies
+    Uses a file lock (.env.lock) to prevent concurrent writes from
+    overwriting each other (msvcrt on Windows, flock elsewhere). Reads the
+    existing file, applies
     the updates dict, and writes back atomically via os.replace().
 
     Args:
@@ -71,15 +73,15 @@ def write_env_atomic(env_path: Path, updates: dict[str, str]) -> None:
         env_path.write_text("", encoding="utf-8")
 
     lock_fd = open(lock_path, "w")
+    locked = False
     try:
         # Acquire exclusive lock (blocking with short retry)
         for _ in range(10):
-            try:
-                msvcrt.locking(lock_fd.fileno(), msvcrt.LK_NBLCK, 1)
+            if try_lock_file(lock_fd):
+                locked = True
                 break
-            except OSError:
-                import time
-                time.sleep(0.05)
+            import time
+            time.sleep(0.05)
         else:
             # Could not acquire lock after 10 tries — proceed anyway
             # (better to risk a rare race than to hang forever)
@@ -121,10 +123,11 @@ def write_env_atomic(env_path: Path, updates: dict[str, str]) -> None:
         os.replace(tmp, env_path)
 
     finally:
-        try:
-            msvcrt.locking(lock_fd.fileno(), msvcrt.LK_UNLCK, 1)
-        except Exception:
-            pass
+        if locked:
+            try:
+                unlock_file(lock_fd)
+            except Exception:
+                pass
         lock_fd.close()
 
 
@@ -295,7 +298,7 @@ def load_config() -> BotConfig:
     # until the user configures AI_PROVIDER_* via the dashboard.
 
     kwargs: dict = {
-        "wechat_backend": os.getenv("WECHAT_BACKEND", "wcdb").strip(),
+        "wechat_backend": (os.getenv("WECHAT_BACKEND") or "").strip() or default_wechat_backend(),
         "wechat_data_dir": os.getenv("WECHAT_DATA_DIR", "").strip(),
         "admin_wxid": os.getenv("ADMIN_WXID", "").strip(),
         "db_path": os.getenv("LOCAL_DB_PATH", "data/messages.db").strip(),

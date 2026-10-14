@@ -19,11 +19,14 @@ from ..utils.op_logger import op_log, op_log_error, op_log_warning
 logger = logging.getLogger(__name__)
 
 TH32CS_SNAPPROCESS = 0x00000002
-kernel32 = ct.WinDLL("kernel32", use_last_error=True)
+kernel32 = ct.WinDLL("kernel32", use_last_error=True) if sys.platform == "win32" else None
 
 
 def _find_wechat_pid():
     """Find running WeChat process PID."""
+    if kernel32 is None:
+        return None
+
     class PE(ct.Structure):
         _fields_ = [
             ("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD),
@@ -101,6 +104,14 @@ def extract_wcdb_key(require_restart: bool = True,
                 on_progress(phase, msg)
             except Exception:
                 pass
+
+    if sys.platform != "win32":
+        _progress(
+            "unsupported",
+            "当前系统不能从微信进程提取密钥（该步骤依赖 Windows 的 wx_key.dll）。"
+            "请在配置里填写 WCDB_KEY，并设置 WECHAT_DATA_DIR。",
+        )
+        return None
 
     dll_path = _find_wx_key_dll()
     if not dll_path:

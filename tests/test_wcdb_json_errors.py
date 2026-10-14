@@ -108,7 +108,7 @@ def test_start_survives_group_resolution_failure(monkeypatch):
         "WCDB query result too large (truncated at 500000 bytes)"
     )
     monkeypatch.setattr(
-        "src.wechat.wcdb_backend.WcdbNativeClient", lambda *a, **k: client
+        "src.wechat.wcdb_backend.get_shared_client", lambda: client
     )
 
     backend = WcdbBackend(groups=["测试群"])
